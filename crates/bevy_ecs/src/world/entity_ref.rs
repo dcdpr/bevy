@@ -2742,6 +2742,16 @@ impl<'w> EntityWorldMut<'w> {
             .entity_get_spawned_or_despawned_by(self.entity)
             .unwrap()
     }
+
+    /// Returns an [`EntityWorldMut`] with a smaller lifetime. This is useful if you have `&mut
+    /// EntityWorldMut` but need `EntityWorldMut`.
+    pub fn reborrow(&mut self) -> EntityWorldMut<'_> {
+        EntityWorldMut {
+            world: self.world,
+            entity: self.entity,
+            location: self.location,
+        }
+    }
 }
 
 /// # Safety
@@ -2909,6 +2919,17 @@ impl<'w, 'a, T: Component> Entry<'w, 'a, T> {
             Entry::Vacant(entry) => entry.insert(default()),
         }
     }
+
+    /// Get the [`EntityWorldMut`] from which the [`Entry`] was initiated.
+    ///
+    /// This allows you to continue chaining method calls after calling [`EntityWorldMut::entry`].
+    #[inline]
+    pub fn entity_world(&mut self) -> EntityWorldMut {
+        match self {
+            Entry::Occupied(entry) => entry.entity_world(),
+            Entry::Vacant(entry) => entry.entity_world(),
+        }
+    }
 }
 
 impl<'w, 'a, T: Component + Default> Entry<'w, 'a, T> {
@@ -3014,6 +3035,13 @@ impl<'w, 'a, T: Component> OccupiedEntry<'w, 'a, T> {
         // This shouldn't panic because if we have an OccupiedEntry the component must exist.
         self.entity_world.take().unwrap()
     }
+
+    /// Get the [`EntityWorldMut`] from which the [`OccupiedEntry`] was initiated. This allows you
+    /// to continue chaining method calls after calling [`EntityWorldMut::entry`].
+    #[inline]
+    pub fn entity_world(&mut self) -> EntityWorldMut<'_> {
+        self.entity_world.reborrow()
+    }
 }
 
 impl<'w, 'a, T: Component<Mutability = Mutable>> OccupiedEntry<'w, 'a, T> {
@@ -3112,6 +3140,13 @@ impl<'w, 'a, T: Component> VacantEntry<'w, 'a, T> {
             entity_world: self.entity_world,
             _marker: PhantomData,
         }
+    }
+
+    /// Get the [`EntityWorldMut`] from which the [`VacantEntry`] was initiated. This allows you
+    /// to continue chaining method calls after calling [`EntityWorldMut::entry`].
+    #[inline]
+    pub fn entity_world(&mut self) -> EntityWorldMut<'_> {
+        self.entity_world.reborrow()
     }
 }
 
@@ -5682,6 +5717,39 @@ mod tests {
 
         assert_eq!(world.entity(entity_a).get::<D>(), None);
         assert_eq!(world.entity(entity_b).get::<D>(), Some(&D));
+    }
+
+    #[test]
+    fn entity_world_mut_reborrow_and_entry() {
+        use bevy_ecs::prelude::*;
+        #[derive(Component, Default, Clone, Copy, Debug, PartialEq)]
+        struct Comp(u32);
+
+        fn or_insert(mut entity: EntityWorldMut) -> Entity {
+            entity
+                .entry()
+                .or_insert_with(|| Comp(4))
+                .entity_world()
+                .id()
+        }
+
+        let mut world = World::new();
+        let mut entity = world.spawn_empty();
+
+        let entity_id = or_insert(entity.reborrow());
+        assert_eq!(entity.get::<Comp>().unwrap().0, 4);
+        // assert_eq!(world.query::<&Comp>().single(&world).0, 4);
+
+        let mut entity = world.get_entity_mut(entity_id).unwrap();
+        let result = entity
+            .entry::<Comp>()
+            .and_modify(|mut c| c.0 += 1)
+            .entity_world()
+            .get::<Comp>()
+            .unwrap()
+            .0;
+
+        assert_eq!(result, 5);
     }
 
     #[test]
