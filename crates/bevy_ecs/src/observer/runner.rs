@@ -6,7 +6,7 @@ use crate::{
     observer::{ObserverDescriptor, ObserverTrigger},
     prelude::*,
     query::DebugCheckedUnwrap,
-    result::{DefaultSystemsErrorHandler, SystemErrorContext},
+    result::{DefaultSystemErrorHandler, SystemErrorContext},
     system::{IntoObserverSystem, ObserverSystem},
     world::DeferredWorld,
 };
@@ -444,7 +444,7 @@ fn hook_on_add<E: Event, B: Bundle, S: ObserverSystem<E, B>>(
             ..Default::default()
         };
 
-        let error_handler = world.get_resource_or_init::<DefaultSystemsErrorHandler>().0;
+        let error_handler = world.get_resource_or_init::<DefaultSystemErrorHandler>().0;
 
         // Initialize System
         let system: *mut dyn ObserverSystem<E, B> =
@@ -474,4 +474,26 @@ fn hook_on_add<E: Event, B: Bundle, S: ObserverSystem<E, B>>(
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{event::Event, observer::Trigger};
+
+    #[derive(Event)]
+    struct TriggerEvent;
+
+    #[test]
+    #[should_panic(expected = "I failed!")]
+    fn test_fallible_observer() {
+        fn system(_: Trigger<TriggerEvent>) -> Result {
+            Err("I failed!".into())
+        }
+
+        let mut world = World::default();
+        world.add_observer(system);
+        Schedule::default().run(&mut world);
+        world.trigger(TriggerEvent);
+    }
 }
